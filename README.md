@@ -160,11 +160,3 @@ If no model is specified, the tool uses your default LLM model (configured with 
 ## Rate Limiting
 
 The tool automatically includes a 4-second delay between LLM calls to respect API rate limits (max 15 requests/minute).
-
-## License
-
-[Add your license information here]
-
-## Contributing
-
-[Add contribution guidelines here]
