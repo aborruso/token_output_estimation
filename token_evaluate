@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # token_evaluate - CLI to estimate token count for JSON output from structured text files
-# Usage: token_evaluate [--verbose|-v] input_file "instructions"
+# Usage: token_evaluate [--verbose|-v] [--items|-n number] input_file "instructions"
 
 # Cleanup handler for spinner and exit
 cleanup() {
@@ -17,6 +17,7 @@ trap cleanup EXIT INT TERM
 verbose=false
 file_input=""
 user_instructions=""
+items_count=1
 
 # Parse parameters
 while [[ $# -gt 0 ]]; do
@@ -24,6 +25,14 @@ while [[ $# -gt 0 ]]; do
         -v|--verbose)
             verbose=true
             shift
+            ;;
+        -n|--items)
+            if [ -z "$2" ] || [[ "$2" =~ ^- ]]; then
+                echo "Error: --items requires a number" >&2
+                exit 1
+            fi
+            items_count="$2"
+            shift 2
             ;;
         *)
             if [ -z "$file_input" ]; then
@@ -44,7 +53,7 @@ if [ -t 0 ]; then
     # No pipe input - require file and instructions
     if [ -z "$file_input" ] || [ -z "$user_instructions" ]; then
         echo "Error: Incorrect number of parameters" >&2
-        echo "Usage: token_evaluate [--verbose|-v] input_file \"instructions\"" >&2
+        echo "Usage: token_evaluate [--verbose|-v] [--items|-n number] input_file \"instructions\"" >&2
         echo "   Or: cat input_file | token_evaluate [--verbose|-v] \"instructions\"" >&2
         echo "       --verbose, -v : Show output JSON and token count for each run" >&2
         echo "Example: token_evaluate sample/input_01.html \"extract province, city, center, address, contacts and hours\"" >&2
@@ -63,7 +72,7 @@ else
             file_input=""
         else
             echo "Error: Instructions required when using pipe input" >&2
-            echo "Usage: cat input_file | token_evaluate [--verbose|-v] \"instructions\"" >&2
+            echo "Usage: cat input_file | token_evaluate [--verbose|-v] [--items|-n number] \"instructions\"" >&2
             exit 1
         fi
     fi
@@ -73,6 +82,12 @@ fi
 
 # Always add random element extraction to instructions
 instructions="$user_instructions. Always extract a random element, not the first one."
+
+# Validate items_count is a positive integer
+if ! [[ "$items_count" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Error: --items must be a positive integer" >&2
+    exit 1
+fi
 
 # Check input file existence (only if using file input)
 if [ -n "$file_input" ] && [ ! -f "$file_input" ]; then
@@ -264,8 +279,27 @@ if [ "$verbose" = true ]; then
     echo "=== SUMMARY ===" >&2
     echo "Token count for 3 runs: ${results[1]}, ${results[2]}, ${results[3]}" >&2
     echo "Calculated mean: $average" >&2
+    if [ "$items_count" -gt 1 ]; then
+        echo "Items count: $items_count" >&2
+        echo "Total estimated tokens: $((average * items_count))" >&2
+    fi
     echo "" >&2
 fi
 
-# Output only the final number
-echo "$average"
+# Generate JSON output
+if [ "$items_count" -eq 1 ]; then
+    # Simple case: only single_item_tokens
+    json_output="{\"single_item_tokens\": $average}"
+else
+    # Calculate total estimated tokens
+    if command -v bc >/dev/null 2>&1; then
+        total_estimated=$(echo "$average * $items_count" | bc)
+    else
+        total_estimated=$((average * items_count))
+    fi
+    # Full case: include items and total_estimated_tokens
+    json_output="{\"single_item_tokens\": $average, \"items\": $items_count, \"total_estimated_tokens\": $total_estimated}"
+fi
+
+# Output JSON Line
+echo "$json_output"
