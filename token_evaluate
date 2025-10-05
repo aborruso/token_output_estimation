@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # token_evaluate - CLI to estimate token count for JSON output from structured text files
-# Usage: token_evaluate [--verbose|-v] [--items|-n number] input_file "instructions"
+# Usage: token_evaluate [--verbose|-v] [--items|-n number] [--model|-m model_name] input_file "instructions"
 
 # Cleanup handler for spinner and exit
 cleanup() {
@@ -18,6 +18,7 @@ verbose=false
 file_input=""
 user_instructions=""
 items_count=1
+model_name=""
 
 # Parse parameters
 while [[ $# -gt 0 ]]; do
@@ -32,6 +33,14 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             items_count="$2"
+            shift 2
+            ;;
+        -m|--model)
+            if [ -z "$2" ] || [[ "$2" =~ ^- ]]; then
+                echo "Error: --model requires a model name" >&2
+                exit 1
+            fi
+            model_name="$2"
             shift 2
             ;;
         *)
@@ -53,12 +62,19 @@ if [ -t 0 ]; then
     # No pipe input - require file and instructions
     if [ -z "$file_input" ] || [ -z "$user_instructions" ]; then
         echo "Error: Incorrect number of parameters" >&2
-        echo "Usage: token_evaluate [--verbose|-v] [--items|-n number] input_file \"instructions\"" >&2
-        echo "   Or: cat input_file | token_evaluate [--verbose|-v] \"instructions\"" >&2
-        echo "       --verbose, -v : Show output JSON and token count for each run" >&2
-        echo "Example: token_evaluate sample/input_01.html \"extract province, city, center, address, contacts and hours\"" >&2
-        echo "         cat data.csv | token_evaluate \"extract name and email\"" >&2
-        echo "         token_evaluate -v sample/input_01.html \"extract all fields\"" >&2
+        echo "Usage: token_evaluate [--verbose|-v] [--items|-n number] [--model|-m model_name] input_file \"instructions\"" >&2
+        echo "   Or: cat input_file | token_evaluate [--verbose|-v] [--items|-n number] [--model|-m model_name] \"instructions\"" >&2
+        echo "" >&2
+        echo "Options:" >&2
+        echo "  --verbose, -v       : Show output JSON and token count for each run" >&2
+        echo "  --items, -n NUMBER  : Multiply token estimate by NUMBER items" >&2
+        echo "  --model, -m MODEL   : Use specific LLM model (default: uses llm default)" >&2
+        echo "" >&2
+        echo "Examples:" >&2
+        echo "  token_evaluate sample/input_01.html \"extract province, city, center\"" >&2
+        echo "  token_evaluate -m gpt-4o sample/data.csv \"extract name and email\"" >&2
+        echo "  token_evaluate -v -n 100 sample/input_01.html \"extract all fields\"" >&2
+        echo "  cat data.json | token_evaluate -m 4o-mini \"extract key information\"" >&2
         exit 1
     fi
     input_data=""  # Will read from file each time
@@ -72,7 +88,7 @@ else
             file_input=""
         else
             echo "Error: Instructions required when using pipe input" >&2
-            echo "Usage: cat input_file | token_evaluate [--verbose|-v] [--items|-n number] \"instructions\"" >&2
+            echo "Usage: cat input_file | token_evaluate [--verbose|-v] [--items|-n number] [--model|-m model_name] \"instructions\"" >&2
             exit 1
         fi
     fi
@@ -102,6 +118,36 @@ for dep in llm ttok; do
         exit 1
     fi
 done
+
+# Check if template exists
+if ! llm templates list 2>/dev/null | grep -q "^token_output"; then
+    echo "Error: Template 'token_output' not found" >&2
+    echo "" >&2
+    echo "Please install the template with:" >&2
+    templates_path=$(llm templates path 2>/dev/null)
+    if [ -n "$templates_path" ]; then
+        echo "  cp resource/template.yml $templates_path/token_output.yml" >&2
+    else
+        echo "  cp resource/template.yml \$(llm templates path)/token_output.yml" >&2
+    fi
+    echo "" >&2
+    exit 1
+fi
+
+# Build model parameter if specified
+model_param=""
+if [ -n "$model_name" ]; then
+    # Verify model exists
+    if ! llm models list 2>/dev/null | grep -q "$model_name"; then
+        echo "Error: Model '$model_name' not found" >&2
+        echo "" >&2
+        echo "Available models:" >&2
+        llm models list 2>/dev/null | head -20 >&2
+        echo "" >&2
+        exit 1
+    fi
+    model_param="-m $model_name"
+fi
 
 # Check input size and truncate if necessary
 max_tokens=500000
@@ -158,13 +204,13 @@ for i in {1..3}; do
         if [ "$verbose" = true ]; then
             if [ -n "$input_data" ]; then
                 # Using pipe data (already truncated if needed)
-                json_output=$(echo "$input_data" | llm -t token_output -p instructions "$instructions" 2>/dev/null)
+                json_output=$(echo "$input_data" | llm $model_param -t token_output -p instructions "$instructions" 2>/dev/null)
             else
                 # Using file data - truncate if needed
                 if [ "$file_truncated" = true ]; then
-                    json_output=$(cat "$file_input" | ttok -t "$max_tokens" | llm -t token_output -p instructions "$instructions" 2>/dev/null)
+                    json_output=$(cat "$file_input" | ttok -t "$max_tokens" | llm $model_param -t token_output -p instructions "$instructions" 2>/dev/null)
                 else
-                    json_output=$(cat "$file_input" | llm -t token_output -p instructions "$instructions" 2>/dev/null)
+                    json_output=$(cat "$file_input" | llm $model_param -t token_output -p instructions "$instructions" 2>/dev/null)
                 fi
             fi
             result=$(echo "$json_output" | ttok 2>/dev/null)
@@ -172,13 +218,13 @@ for i in {1..3}; do
             # Normal mode: only token count
             if [ -n "$input_data" ]; then
                 # Using pipe data (already truncated if needed)
-                json_output=$(echo "$input_data" | llm -t token_output -p instructions "$instructions" 2>/dev/null)
+                json_output=$(echo "$input_data" | llm $model_param -t token_output -p instructions "$instructions" 2>/dev/null)
             else
                 # Using file data - truncate if needed
                 if [ "$file_truncated" = true ]; then
-                    json_output=$(cat "$file_input" | ttok -t "$max_tokens" | llm -t token_output -p instructions "$instructions" 2>/dev/null)
+                    json_output=$(cat "$file_input" | ttok -t "$max_tokens" | llm $model_param -t token_output -p instructions "$instructions" 2>/dev/null)
                 else
-                    json_output=$(cat "$file_input" | llm -t token_output -p instructions "$instructions" 2>/dev/null)
+                    json_output=$(cat "$file_input" | llm $model_param -t token_output -p instructions "$instructions" 2>/dev/null)
                 fi
             fi
             result=$(echo "$json_output" | ttok 2>/dev/null)
