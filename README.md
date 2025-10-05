@@ -25,11 +25,13 @@ The tool:
 You need to install these dependencies first:
 
 1. **LLM CLI** - https://llm.datasette.io/
+
    ```bash
    pip install llm
    ```
 
 2. **ttok** - Token counter utility
+
    ```bash
    pip install ttok
    ```
@@ -37,17 +39,20 @@ You need to install these dependencies first:
 ### Install token_evaluate
 
 1. Clone this repository:
+
    ```bash
    git clone <repository-url>
    cd token_output_estimation
    ```
 
 2. Install the utility:
+
    ```bash
    sudo make install
    ```
 
 3. **Copy the template** to your LLM CLI templates directory:
+
    ```bash
    # Find your LLM templates directory
    llm templates path
@@ -59,6 +64,7 @@ You need to install these dependencies first:
 ## Usage
 
 ### Basic usage
+
 ```bash
 token_evaluate input_file "extraction instructions"
 ```
@@ -112,6 +118,7 @@ cat data.json | token_evaluate -m 4o-mini "extract key information"
 ## Template Configuration
 
 The tool uses a specific LLM template (`token_output.yml`) that:
+
 - Extracts only requested fields from structured data
 - Always selects a random element (not the first)
 - Returns clean JSON output only
@@ -124,17 +131,21 @@ The tool uses a specific LLM template (`token_output.yml`) that:
 The tool outputs JSON to stdout with the following structure:
 
 ### Single item estimation
+
 ```json
 {"single_item_tokens": 42}
 ```
 
 ### Batch estimation (with --items)
+
 ```json
 {"single_item_tokens": 42, "items": 1000, "total_estimated_tokens": 42000}
 ```
 
 ### Verbose mode
+
 In verbose mode, diagnostics go to stderr:
+
 - JSON output for each of the 3 runs
 - Individual token counts
 - Summary with calculated mean
