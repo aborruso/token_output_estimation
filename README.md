@@ -63,25 +63,42 @@ You need to install these dependencies first:
 token_evaluate input_file "extraction instructions"
 ```
 
-### Verbose mode (show JSON outputs and individual token counts)
-```bash
-token_evaluate -v input_file "extraction instructions"
-```
+### Options
+
+- `--verbose, -v`: Show JSON outputs and individual token counts for each run
+- `--items, -n NUMBER`: Multiply token estimate by NUMBER items for total calculation
+- `--model, -m MODEL`: Use specific LLM model (default: uses llm default)
 
 ### Examples
 
 ```bash
 # Basic token count estimation
 token_evaluate data.html "extract province and city"
-# Output: 15
+# Output: {"single_item_tokens": 15}
 
 # Verbose mode to see the actual JSON outputs
 token_evaluate -v data.csv "extract name, email and phone number"
 # Output: Shows JSON for each run + final average
 
-# Complex extraction
-token_evaluate data.json "extract all available fields"
-# Output: 89
+# Use a specific model
+token_evaluate -m gpt-4o data.html "extract province and city"
+# Output: {"single_item_tokens": 15}
+
+# Use model alias for faster/cheaper estimation
+token_evaluate -m 4o-mini data.csv "extract name and email"
+# Output: {"single_item_tokens": 10}
+
+# Calculate total tokens for batch processing
+token_evaluate -n 1000 data.json "extract all available fields"
+# Output: {"single_item_tokens": 89, "items": 1000, "total_estimated_tokens": 89000}
+
+# Combine options
+token_evaluate -v -m gpt-4o -n 500 data.html "extract all fields"
+# Output: Shows detailed run info + total estimation
+
+# Pipe input with model selection
+cat data.json | token_evaluate -m 4o-mini "extract key information"
+# Output: {"single_item_tokens": 42}
 ```
 
 ## Supported Data Formats
@@ -100,11 +117,45 @@ The tool uses a specific LLM template (`token_output.yml`) that:
 - Returns clean JSON output only
 - Adapts to different data formats automatically
 
+**Important**: The template must be installed before first use. The tool will check for the template and provide installation instructions if missing.
+
 ## Output
 
-- **Standard mode**: Single integer (average token count)
-- **Verbose mode**: JSON outputs + token counts + final average
-- **Pipe-friendly**: Only the number goes to stdout, diagnostics to stderr
+The tool outputs JSON to stdout with the following structure:
+
+### Single item estimation
+```json
+{"single_item_tokens": 42}
+```
+
+### Batch estimation (with --items)
+```json
+{"single_item_tokens": 42, "items": 1000, "total_estimated_tokens": 42000}
+```
+
+### Verbose mode
+In verbose mode, diagnostics go to stderr:
+- JSON output for each of the 3 runs
+- Individual token counts
+- Summary with calculated mean
+- Final JSON result to stdout
+
+## Model Selection
+
+You can specify which LLM model to use with the `--model` or `-m` option:
+
+```bash
+# Use GPT-4o for higher quality extraction
+token_evaluate -m gpt-4o data.html "extract fields"
+
+# Use GPT-4o-mini for faster/cheaper estimation
+token_evaluate -m 4o-mini data.html "extract fields"
+
+# Use model aliases
+token_evaluate -m 4o data.html "extract fields"  # Same as gpt-4o
+```
+
+If no model is specified, the tool uses your default LLM model (configured with `llm models default`).
 
 ## Rate Limiting
 
