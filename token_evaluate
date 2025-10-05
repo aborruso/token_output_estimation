@@ -70,24 +70,23 @@ done
 declare -a results
 declare -a json_outputs
 
+# Start continuous spinner only in non-verbose mode
 if [ "$verbose" = false ]; then
     echo -n "Processing" >&2
+    (
+        while true; do
+            for dots in "." ".." "..."; do
+                echo -ne "\r\033[KProcessing$dots" >&2
+                sleep 0.5
+            done
+        done
+    ) &
+    spinner_pid=$!
 fi
 
 # Run the command 3 times
 for i in {1..3}; do
-    if [ "$verbose" = false ]; then
-        # Animated dots (only in non-verbose mode)
-        (
-            while true; do
-                for dots in "." ".." "..."; do
-                    echo -ne "\r\033[KProcessing$dots" >&2
-                    sleep 0.5
-                done
-            done
-        ) &
-        spinner_pid=$!
-    else
+    if [ "$verbose" = true ]; then
         echo "=== Run $i/3 ===" >&2
     fi
 
@@ -106,17 +105,16 @@ for i in {1..3}; do
     else
         # Normal mode: only token count
         result=$(cat "$file_input" | llm -t token_output -p instructions "$instructions" | ttok 2>/dev/null)
-
-        # Always stop spinner
-        if [ -n "$spinner_pid" ]; then
-            kill $spinner_pid 2>/dev/null
-            wait $spinner_pid 2>/dev/null
-        fi
     fi
 
     # Check that result is a number
     if ! [[ "$result" =~ ^[0-9]+$ ]]; then
         if [ "$verbose" = false ]; then
+            # Stop spinner before showing error
+            if [ -n "$spinner_pid" ]; then
+                kill $spinner_pid 2>/dev/null
+                wait $spinner_pid 2>/dev/null
+            fi
             echo -e "\r\033[K" >&2
         fi
         echo "Error: Run $i produced a non-numeric result: '$result'" >&2
@@ -132,8 +130,12 @@ for i in {1..3}; do
     fi
 done
 
-# Clear animation line (only in non-verbose mode)
+# Stop spinner and clear animation line (only in non-verbose mode)
 if [ "$verbose" = false ]; then
+    if [ -n "$spinner_pid" ]; then
+        kill $spinner_pid 2>/dev/null
+        wait $spinner_pid 2>/dev/null
+    fi
     echo -e "\r\033[K" >&2
 fi
 
