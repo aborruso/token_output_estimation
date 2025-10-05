@@ -1,19 +1,56 @@
 #!/bin/bash
 
 # token_evaluate - CLI per stimare token output JSON da blocchi HTML
-# Sintassi: token_evaluate file_input "istruzioni"
+# Sintassi: token_evaluate [--verbose|-v] file_input "istruzioni"
+
+# Gestione pulizia all'uscita
+cleanup() {
+    if [ -n "$spinner_pid" ]; then
+        kill $spinner_pid 2>/dev/null
+        wait $spinner_pid 2>/dev/null
+    fi
+    echo -e "\r\033[K" >&2  # Pulisce la riga
+}
+trap cleanup EXIT INT TERM
+
+# Inizializza variabili
+verbose=false
+file_input=""
+istruzioni_utente=""
+
+# Parsing parametri
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -v|--verbose)
+            verbose=true
+            shift
+            ;;
+        *)
+            if [ -z "$file_input" ]; then
+                file_input="$1"
+            elif [ -z "$istruzioni_utente" ]; then
+                istruzioni_utente="$1"
+            else
+                echo "Errore: Troppi parametri" >&2
+                exit 1
+            fi
+            shift
+            ;;
+    esac
+done
 
 # Verifica numero di parametri
-if [ $# -ne 2 ]; then
+if [ -z "$file_input" ] || [ -z "$istruzioni_utente" ]; then
     echo "Errore: Numero di parametri non corretto" >&2
-    echo "Uso: token_evaluate file_input \"istruzioni\"" >&2
-    echo "Esempio: token_evaluate sample/input_01.html \"vorrei estrarre provincia, comune, centro, indirizzo, contatti e orari. Estrai un elemento qualsiasi non il primo\"" >&2
+    echo "Uso: token_evaluate [--verbose|-v] file_input \"istruzioni\"" >&2
+    echo "     --verbose, -v : Mostra i JSON di output e i token count delle singole esecuzioni" >&2
+    echo "Esempio: token_evaluate sample/input_01.html \"vorrei estrarre provincia, comune, centro, indirizzo, contatti e orari\"" >&2
+    echo "         token_evaluate -v sample/input_01.html \"estrai tutti i campi\"" >&2
     exit 1
 fi
 
-# Assegna parametri
-file_input="$1"
-istruzioni="$2"
+# Modifica automaticamente le istruzioni per sempre estrarre un elemento random (non il primo)
+istruzioni="$istruzioni_utente. Estrai sempre un elemento casuale."
 
 # Verifica esistenza file input
 if [ ! -f "$file_input" ]; then
@@ -31,32 +68,58 @@ done
 
 # Array per memorizzare i risultati delle 3 esecuzioni
 declare -a results
+declare -a json_outputs
 
-echo -n "Calcolo in corso" >&2
+if [ "$verbose" = false ]; then
+    echo -n "Calcolo in corso" >&2
+fi
 
 # Esegue il comando 3 volte
 for i in {1..3}; do
-    # Animazione con puntini durante l'esecuzione
-    (
-        while true; do
-            for dots in "." ".." "..."; do
-                echo -ne "\r\033[KCalcolo in corso$dots" >&2
-                sleep 0.5
+    if [ "$verbose" = false ]; then
+        # Animazione con puntini durante l'esecuzione (solo in modalità non-verbose)
+        (
+            while true; do
+                for dots in "." ".." "..."; do
+                    echo -ne "\r\033[KCalcolo in corso$dots" >&2
+                    sleep 0.5
+                done
             done
-        done
-    ) &
-    spinner_pid=$!
+        ) &
+        spinner_pid=$!
+    else
+        echo "=== Esecuzione $i/3 ===" >&2
+    fi
 
-    # Esegue il comando e cattura il risultato
-    result=$(cat "$file_input" | llm -t token_output -p istruzioni "$istruzioni" | ttok 2>/dev/null)
+    # Cattura l'output JSON completo quando in modalità verbose
+    if [ "$verbose" = true ]; then
+        json_output=$(cat "$file_input" | llm -t token_output -p istruzioni "$istruzioni" 2>/dev/null)
+        result=$(echo "$json_output" | ttok 2>/dev/null)
 
-    # Ferma l'animazione
-    kill $spinner_pid 2>/dev/null
-    wait $spinner_pid 2>/dev/null
+        # Salva il JSON per la visualizzazione
+        json_outputs[$i]="$json_output"
+
+        echo "JSON Output:" >&2
+        echo "$json_output" >&2
+        echo "Token count: $result" >&2
+        echo "" >&2
+    else
+        # Modalità normale: solo token count
+        result=$(cat "$file_input" | llm -t token_output -p istruzioni "$istruzioni" | ttok 2>/dev/null)
+
+        # Ferma l'animazione in ogni caso
+        if [ -n "$spinner_pid" ]; then
+            kill $spinner_pid 2>/dev/null
+            wait $spinner_pid 2>/dev/null
+        fi
+    fi
 
     # Verifica che il risultato sia un numero
     if ! [[ "$result" =~ ^[0-9]+$ ]]; then
-        echo -e "\r\033[KErrore: Esecuzione $i ha prodotto un risultato non numerico: '$result'" >&2
+        if [ "$verbose" = false ]; then
+            echo -e "\r\033[K" >&2
+        fi
+        echo "Errore: Esecuzione $i ha prodotto un risultato non numerico: '$result'" >&2
         exit 1
     fi
 
@@ -69,8 +132,10 @@ for i in {1..3}; do
     fi
 done
 
-# Pulisce la riga dell'animazione
-echo -e "\r\033[K" >&2
+# Pulisce la riga dell'animazione (solo in modalità non-verbose)
+if [ "$verbose" = false ]; then
+    echo -e "\r\033[K" >&2
+fi
 
 # Calcola la media
 total=0
@@ -89,6 +154,14 @@ else
     if [ $remainder -ge 2 ]; then
         average=$((average + 1))
     fi
+fi
+
+# Mostra riepilogo in modalità verbose
+if [ "$verbose" = true ]; then
+    echo "=== RIEPILOGO ===" >&2
+    echo "Token count delle 3 esecuzioni: ${results[1]}, ${results[2]}, ${results[3]}" >&2
+    echo "Media calcolata: $average" >&2
+    echo "" >&2
 fi
 
 # Output del risultato (solo il numero)
