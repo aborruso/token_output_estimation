@@ -1,0 +1,95 @@
+#!/bin/bash
+
+# token_evaluate - CLI per stimare token output JSON da blocchi HTML
+# Sintassi: token_evaluate file_input "istruzioni"
+
+# Verifica numero di parametri
+if [ $# -ne 2 ]; then
+    echo "Errore: Numero di parametri non corretto" >&2
+    echo "Uso: token_evaluate file_input \"istruzioni\"" >&2
+    echo "Esempio: token_evaluate sample/input_01.html \"vorrei estrarre provincia, comune, centro, indirizzo, contatti e orari. Estrai un elemento qualsiasi non il primo\"" >&2
+    exit 1
+fi
+
+# Assegna parametri
+file_input="$1"
+istruzioni="$2"
+
+# Verifica esistenza file input
+if [ ! -f "$file_input" ]; then
+    echo "Errore: File '$file_input' non trovato" >&2
+    exit 1
+fi
+
+# Verifica disponibilità comandi necessari
+for cmd in llm ttok cat; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        echo "Errore: Comando '$cmd' non trovato. Assicurati che sia installato e nel PATH" >&2
+        exit 1
+    fi
+done
+
+# Array per memorizzare i risultati delle 3 esecuzioni
+declare -a results
+
+echo -n "Calcolo in corso" >&2
+
+# Esegue il comando 3 volte
+for i in {1..3}; do
+    # Animazione con puntini durante l'esecuzione
+    (
+        while true; do
+            for dots in "." ".." "..."; do
+                echo -ne "\r\033[KCalcolo in corso$dots" >&2
+                sleep 0.5
+            done
+        done
+    ) &
+    spinner_pid=$!
+
+    # Esegue il comando e cattura il risultato
+    result=$(cat "$file_input" | llm -t token_output -p istruzioni "$istruzioni" | ttok 2>/dev/null)
+
+    # Ferma l'animazione
+    kill $spinner_pid 2>/dev/null
+    wait $spinner_pid 2>/dev/null
+
+    # Verifica che il risultato sia un numero
+    if ! [[ "$result" =~ ^[0-9]+$ ]]; then
+        echo -e "\r\033[KErrore: Esecuzione $i ha prodotto un risultato non numerico: '$result'" >&2
+        exit 1
+    fi
+
+    # Aggiunge il risultato all'array
+    results[$i]=$result
+
+    # Delay di 4 secondi tra le richieste per rispettare rate limit (max 15/min = 1 ogni 4 sec)
+    if [ $i -lt 3 ]; then
+        sleep 4
+    fi
+done
+
+# Pulisce la riga dell'animazione
+echo -e "\r\033[K" >&2
+
+# Calcola la media
+total=0
+for result in "${results[@]}"; do
+    total=$((total + result))
+done
+
+# Calcola la media e arrotonda all'intero più vicino
+# Usa bc per calcoli in virgola mobile se disponibile, altrimenti aritmetica bash
+if command -v bc >/dev/null 2>&1; then
+    average=$(echo "scale=0; ($total + 1.5) / 3" | bc)
+else
+    # Arrotondamento manuale: aggiunge 1 se il resto è >= 1.5
+    remainder=$((total % 3))
+    average=$((total / 3))
+    if [ $remainder -ge 2 ]; then
+        average=$((average + 1))
+    fi
+fi
+
+# Output del risultato (solo il numero)
+echo "$average"
