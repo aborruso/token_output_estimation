@@ -39,21 +39,43 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Check parameter count
-if [ -z "$file_input" ] || [ -z "$user_instructions" ]; then
-    echo "Error: Incorrect number of parameters" >&2
-    echo "Usage: token_evaluate [--verbose|-v] input_file \"instructions\"" >&2
-    echo "       --verbose, -v : Show output JSON and token count for each run" >&2
-    echo "Example: token_evaluate sample/input_01.html \"extract province, city, center, address, contacts and hours\"" >&2
-    echo "         token_evaluate -v sample/input_01.html \"extract all fields\"" >&2
-    exit 1
+# Check parameter count and handle pipe input
+if [ -t 0 ]; then
+    # No pipe input - require file and instructions
+    if [ -z "$file_input" ] || [ -z "$user_instructions" ]; then
+        echo "Error: Incorrect number of parameters" >&2
+        echo "Usage: token_evaluate [--verbose|-v] input_file \"instructions\"" >&2
+        echo "   Or: cat input_file | token_evaluate [--verbose|-v] \"instructions\"" >&2
+        echo "       --verbose, -v : Show output JSON and token count for each run" >&2
+        echo "Example: token_evaluate sample/input_01.html \"extract province, city, center, address, contacts and hours\"" >&2
+        echo "         cat data.csv | token_evaluate \"extract name and email\"" >&2
+        echo "         token_evaluate -v sample/input_01.html \"extract all fields\"" >&2
+        exit 1
+    fi
+    input_data=""  # Will read from file each time
+else
+    # Pipe input - only need instructions
+    if [ -z "$user_instructions" ]; then
+        # If file_input is provided but user_instructions is empty,
+        # treat file_input as instructions (shifted parameters)
+        if [ -n "$file_input" ]; then
+            user_instructions="$file_input"
+            file_input=""
+        else
+            echo "Error: Instructions required when using pipe input" >&2
+            echo "Usage: cat input_file | token_evaluate [--verbose|-v] \"instructions\"" >&2
+            exit 1
+        fi
+    fi
+    # Read all stdin data once and store it
+    input_data=$(cat)
 fi
 
 # Always add random element extraction to instructions
 instructions="$user_instructions. Always extract a random element, not the first one."
 
-# Check input file existence
-if [ ! -f "$file_input" ]; then
+# Check input file existence (only if using file input)
+if [ -n "$file_input" ] && [ ! -f "$file_input" ]; then
     echo "Error: File '$file_input' not found" >&2
     exit 1
 fi
@@ -65,6 +87,28 @@ for dep in llm ttok; do
         exit 1
     fi
 done
+
+# Check input size and truncate if necessary
+max_tokens=500000
+
+if [ -n "$input_data" ]; then
+    # Pipe input - check token count
+    input_token_count=$(echo "$input_data" | ttok 2>/dev/null)
+    if [ "$input_token_count" -gt "$max_tokens" ]; then
+        echo "Warning: Input contains $input_token_count tokens, truncating to $max_tokens tokens" >&2
+        input_data=$(echo "$input_data" | ttok -t "$max_tokens" 2>/dev/null)
+    fi
+else
+    # File input - check token count
+    input_token_count=$(cat "$file_input" | ttok 2>/dev/null)
+    if [ "$input_token_count" -gt "$max_tokens" ]; then
+        echo "Warning: Input file contains $input_token_count tokens, truncating to $max_tokens tokens" >&2
+        # For file input, we'll truncate on-the-fly during processing
+        file_truncated=true
+    else
+        file_truncated=false
+    fi
+fi
 
 # Array to store results of the 3 runs
 declare -a results
@@ -90,11 +134,71 @@ for i in {1..3}; do
         echo "=== Run $i/3 ===" >&2
     fi
 
-    # Capture full JSON output in verbose mode
-    if [ "$verbose" = true ]; then
-        json_output=$(cat "$file_input" | llm -t token_output -p instructions "$instructions" 2>/dev/null)
-        result=$(echo "$json_output" | ttok 2>/dev/null)
+    # Retry loop for empty JSON responses
+    retry_count=0
+    max_retries=3
 
+    while [ $retry_count -lt $max_retries ]; do
+        # Capture full JSON output in verbose mode
+        if [ "$verbose" = true ]; then
+            if [ -n "$input_data" ]; then
+                # Using pipe data (already truncated if needed)
+                json_output=$(echo "$input_data" | llm -t token_output -p instructions "$instructions" 2>/dev/null)
+            else
+                # Using file data - truncate if needed
+                if [ "$file_truncated" = true ]; then
+                    json_output=$(cat "$file_input" | ttok -t "$max_tokens" | llm -t token_output -p instructions "$instructions" 2>/dev/null)
+                else
+                    json_output=$(cat "$file_input" | llm -t token_output -p instructions "$instructions" 2>/dev/null)
+                fi
+            fi
+            result=$(echo "$json_output" | ttok 2>/dev/null)
+        else
+            # Normal mode: only token count
+            if [ -n "$input_data" ]; then
+                # Using pipe data (already truncated if needed)
+                json_output=$(echo "$input_data" | llm -t token_output -p instructions "$instructions" 2>/dev/null)
+            else
+                # Using file data - truncate if needed
+                if [ "$file_truncated" = true ]; then
+                    json_output=$(cat "$file_input" | ttok -t "$max_tokens" | llm -t token_output -p instructions "$instructions" 2>/dev/null)
+                else
+                    json_output=$(cat "$file_input" | llm -t token_output -p instructions "$instructions" 2>/dev/null)
+                fi
+            fi
+            result=$(echo "$json_output" | ttok 2>/dev/null)
+        fi
+
+        # Check if JSON is effectively empty (only {} or contains only empty values)
+        if [[ "$json_output" =~ ^\{\}$ ]] || [[ "$json_output" =~ ^\{[[:space:]]*\}$ ]]; then
+            retry_count=$((retry_count + 1))
+            if [ "$verbose" = true ]; then
+                echo "Empty JSON detected, retrying... (attempt $retry_count/$max_retries)" >&2
+            fi
+            if [ $retry_count -lt $max_retries ]; then
+                sleep 2  # Short delay before retry
+            fi
+        else
+            # Valid JSON found, break retry loop
+            break
+        fi
+    done
+
+    # If all retries failed, show error
+    if [ $retry_count -eq $max_retries ] && ([[ "$json_output" =~ ^\{\}$ ]] || [[ "$json_output" =~ ^\{[[:space:]]*\}$ ]]); then
+        if [ "$verbose" = false ]; then
+            # Stop spinner before showing error
+            if [ -n "$spinner_pid" ]; then
+                kill $spinner_pid 2>/dev/null
+                wait $spinner_pid 2>/dev/null
+            fi
+            echo -e "\r\033[K" >&2
+        fi
+        echo "Error: Run $i failed to extract valid data after $max_retries attempts" >&2
+        exit 1
+    fi
+
+    if [ "$verbose" = true ]; then
         # Save JSON for display
         json_outputs[$i]="$json_output"
 
@@ -102,9 +206,6 @@ for i in {1..3}; do
         echo "$json_output" >&2
         echo "Token count: $result" >&2
         echo "" >&2
-    else
-        # Normal mode: only token count
-        result=$(cat "$file_input" | llm -t token_output -p instructions "$instructions" | ttok 2>/dev/null)
     fi
 
     # Check that result is a number
