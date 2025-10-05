@@ -1,0 +1,125 @@
+{
+  "prodotti": [
+    {
+      "id": "P001",
+      "nome": "Smartphone Galaxy",
+      "categoria": "Elettronica",
+      "prezzo": 599.99,
+      "disponibile": true,
+      "specifiche": {
+        "schermo": "6.1 pollici",
+        "memoria": "128GB",
+        "fotocamera": "48MP",
+        "batteria": "4000mAh"
+      },
+      "recensioni": [
+        {
+          "utente": "Marco_85",
+          "voto": 4.5,
+          "commento": "Ottimo telefono, batteria durevole"
+        },
+        {
+          "utente": "Anna_Tech",
+          "voto": 4.0,
+          "commento": "Buona qualità foto, prezzo giusto"
+        }
+      ]
+    },
+    {
+      "id": "P002",
+      "nome": "Laptop ProBook",
+      "categoria": "Computer",
+      "prezzo": 899.99,
+      "disponibile": true,
+      "specifiche": {
+        "processore": "Intel i7",
+        "ram": "16GB",
+        "storage": "512GB SSD",
+        "scheda_grafica": "Intel Iris Xe"
+      },
+      "recensioni": [
+        {
+          "utente": "Dev_Master",
+          "voto": 5.0,
+          "commento": "Perfetto per il lavoro, velocissimo"
+        }
+      ]
+    },
+    {
+      "id": "P003",
+      "nome": "Cuffie Wireless Premium",
+      "categoria": "Audio",
+      "prezzo": 199.99,
+      "disponibile": false,
+      "specifiche": {
+        "tipo": "Over-ear",
+        "cancellazione_rumore": true,
+        "autonomia": "30 ore",
+        "connettivita": "Bluetooth 5.0"
+      },
+      "recensioni": [
+        {
+          "utente": "Music_Lover",
+          "voto": 4.8,
+          "commento": "Suono eccezionale, molto comode"
+        },
+        {
+          "utente": "Audiophile_Pro",
+          "voto": 4.2,
+          "commento": "Buona qualità, cancellazione rumore efficace"
+        }
+      ]
+    },
+    {
+      "id": "P004",
+      "nome": "Tablet Creative",
+      "categoria": "Elettronica",
+      "prezzo": 449.99,
+      "disponibile": true,
+      "specifiche": {
+        "schermo": "10.5 pollici",
+        "memoria": "64GB",
+        "processore": "A12 Bionic",
+        "peso": "469g"
+      },
+      "recensioni": [
+        {
+          "utente": "Artist_Digital",
+          "voto": 4.7,
+          "commento": "Ideale per disegnare, molto preciso"
+        }
+      ]
+    },
+    {
+      "id": "P005",
+      "nome": "Monitor 4K Ultra",
+      "categoria": "Monitor",
+      "prezzo": 349.99,
+      "disponibile": true,
+      "specifiche": {
+        "dimensione": "27 pollici",
+        "risoluzione": "3840x2160",
+        "refresh_rate": "60Hz",
+        "connessioni": ["HDMI", "DisplayPort", "USB-C"]
+      },
+      "recensioni": [
+        {
+          "utente": "Gamer_Pro",
+          "voto": 4.3,
+          "commento": "Colori vividi, ottima per gaming"
+        },
+        {
+          "utente": "Office_Worker",
+          "voto": 4.6,
+          "commento": "Perfetto per il lavoro d'ufficio"
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "negozio": "TechStore Premium",
+    "ultima_modifica": "2024-10-05T10:30:00Z",
+    "valuta": "EUR",
+    "spedizione_gratuita_sopra": 50.00
+  }
+}
