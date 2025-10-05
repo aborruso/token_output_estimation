@@ -1,24 +1,24 @@
 #!/bin/bash
 
-# token_evaluate - CLI per stimare token output JSON da blocchi HTML
-# Sintassi: token_evaluate [--verbose|-v] file_input "istruzioni"
+# token_evaluate - CLI to estimate token count for JSON output from structured text files
+# Usage: token_evaluate [--verbose|-v] input_file "instructions"
 
-# Gestione pulizia all'uscita
+# Cleanup handler for spinner and exit
 cleanup() {
     if [ -n "$spinner_pid" ]; then
         kill $spinner_pid 2>/dev/null
         wait $spinner_pid 2>/dev/null
     fi
-    echo -e "\r\033[K" >&2  # Pulisce la riga
+    echo -e "\r\033[K" >&2  # Clear the line
 }
 trap cleanup EXIT INT TERM
 
-# Inizializza variabili
+# Initialize variables
 verbose=false
 file_input=""
-istruzioni_utente=""
+user_instructions=""
 
-# Parsing parametri
+# Parse parameters
 while [[ $# -gt 0 ]]; do
     case $1 in
         -v|--verbose)
@@ -28,10 +28,10 @@ while [[ $# -gt 0 ]]; do
         *)
             if [ -z "$file_input" ]; then
                 file_input="$1"
-            elif [ -z "$istruzioni_utente" ]; then
-                istruzioni_utente="$1"
+            elif [ -z "$user_instructions" ]; then
+                user_instructions="$1"
             else
-                echo "Errore: Troppi parametri" >&2
+                echo "Error: Too many parameters" >&2
                 exit 1
             fi
             shift
@@ -39,64 +39,64 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Verifica numero di parametri
-if [ -z "$file_input" ] || [ -z "$istruzioni_utente" ]; then
-    echo "Errore: Numero di parametri non corretto" >&2
-    echo "Uso: token_evaluate [--verbose|-v] file_input \"istruzioni\"" >&2
-    echo "     --verbose, -v : Mostra i JSON di output e i token count delle singole esecuzioni" >&2
-    echo "Esempio: token_evaluate sample/input_01.html \"vorrei estrarre provincia, comune, centro, indirizzo, contatti e orari\"" >&2
-    echo "         token_evaluate -v sample/input_01.html \"estrai tutti i campi\"" >&2
+# Check parameter count
+if [ -z "$file_input" ] || [ -z "$user_instructions" ]; then
+    echo "Error: Incorrect number of parameters" >&2
+    echo "Usage: token_evaluate [--verbose|-v] input_file \"instructions\"" >&2
+    echo "       --verbose, -v : Show output JSON and token count for each run" >&2
+    echo "Example: token_evaluate sample/input_01.html \"extract province, city, center, address, contacts and hours\"" >&2
+    echo "         token_evaluate -v sample/input_01.html \"extract all fields\"" >&2
     exit 1
 fi
 
-# Modifica automaticamente le istruzioni per sempre estrarre un elemento random (non il primo)
-istruzioni="$istruzioni_utente. Estrai sempre un elemento casuale."
+# Always add random element extraction to instructions
+instructions="$user_instructions. Always extract a random element, not the first one."
 
-# Verifica esistenza file input
+# Check input file existence
 if [ ! -f "$file_input" ]; then
-    echo "Errore: File '$file_input' non trovato" >&2
+    echo "Error: File '$file_input' not found" >&2
     exit 1
 fi
 
-# Verifica disponibilità comandi necessari
-for cmd in llm ttok cat; do
-    if ! command -v "$cmd" >/dev/null 2>&1; then
-        echo "Errore: Comando '$cmd' non trovato. Assicurati che sia installato e nel PATH" >&2
+# Check dependencies
+for dep in llm ttok; do
+    if ! command -v "$dep" >/dev/null 2>&1; then
+        echo "Error: Missing dependency: '$dep' not found in PATH. Please install '$dep' before proceeding." >&2
         exit 1
     fi
 done
 
-# Array per memorizzare i risultati delle 3 esecuzioni
+# Array to store results of the 3 runs
 declare -a results
 declare -a json_outputs
 
 if [ "$verbose" = false ]; then
-    echo -n "Calcolo in corso" >&2
+    echo -n "Processing" >&2
 fi
 
-# Esegue il comando 3 volte
+# Run the command 3 times
 for i in {1..3}; do
     if [ "$verbose" = false ]; then
-        # Animazione con puntini durante l'esecuzione (solo in modalità non-verbose)
+        # Animated dots (only in non-verbose mode)
         (
             while true; do
                 for dots in "." ".." "..."; do
-                    echo -ne "\r\033[KCalcolo in corso$dots" >&2
+                    echo -ne "\r\033[KProcessing$dots" >&2
                     sleep 0.5
                 done
             done
         ) &
         spinner_pid=$!
     else
-        echo "=== Esecuzione $i/3 ===" >&2
+        echo "=== Run $i/3 ===" >&2
     fi
 
-    # Cattura l'output JSON completo quando in modalità verbose
+    # Capture full JSON output in verbose mode
     if [ "$verbose" = true ]; then
-        json_output=$(cat "$file_input" | llm -t token_output -p istruzioni "$istruzioni" 2>/dev/null)
+        json_output=$(cat "$file_input" | llm -t token_output -p instructions "$instructions" 2>/dev/null)
         result=$(echo "$json_output" | ttok 2>/dev/null)
 
-        # Salva il JSON per la visualizzazione
+        # Save JSON for display
         json_outputs[$i]="$json_output"
 
         echo "JSON Output:" >&2
@@ -104,51 +104,51 @@ for i in {1..3}; do
         echo "Token count: $result" >&2
         echo "" >&2
     else
-        # Modalità normale: solo token count
-        result=$(cat "$file_input" | llm -t token_output -p istruzioni "$istruzioni" | ttok 2>/dev/null)
+        # Normal mode: only token count
+        result=$(cat "$file_input" | llm -t token_output -p instructions "$instructions" | ttok 2>/dev/null)
 
-        # Ferma l'animazione in ogni caso
+        # Always stop spinner
         if [ -n "$spinner_pid" ]; then
             kill $spinner_pid 2>/dev/null
             wait $spinner_pid 2>/dev/null
         fi
     fi
 
-    # Verifica che il risultato sia un numero
+    # Check that result is a number
     if ! [[ "$result" =~ ^[0-9]+$ ]]; then
         if [ "$verbose" = false ]; then
             echo -e "\r\033[K" >&2
         fi
-        echo "Errore: Esecuzione $i ha prodotto un risultato non numerico: '$result'" >&2
+        echo "Error: Run $i produced a non-numeric result: '$result'" >&2
         exit 1
     fi
 
-    # Aggiunge il risultato all'array
+    # Add result to array
     results[$i]=$result
 
-    # Delay di 4 secondi tra le richieste per rispettare rate limit (max 15/min = 1 ogni 4 sec)
+    # 4 second delay for rate limiting (max 15/min = 1 every 4 sec)
     if [ $i -lt 3 ]; then
         sleep 4
     fi
 done
 
-# Pulisce la riga dell'animazione (solo in modalità non-verbose)
+# Clear animation line (only in non-verbose mode)
 if [ "$verbose" = false ]; then
     echo -e "\r\033[K" >&2
 fi
 
-# Calcola la media
+# Calculate the total
 total=0
 for result in "${results[@]}"; do
     total=$((total + result))
 done
 
-# Calcola la media e arrotonda all'intero più vicino
-# Usa bc per calcoli in virgola mobile se disponibile, altrimenti aritmetica bash
+# Calculate the mean and round to nearest integer
+# Use bc for floating point if available, otherwise bash arithmetic
 if command -v bc >/dev/null 2>&1; then
     average=$(echo "scale=0; ($total + 1.5) / 3" | bc)
 else
-    # Arrotondamento manuale: aggiunge 1 se il resto è >= 1.5
+    # Manual rounding: add 1 if remainder >= 1.5
     remainder=$((total % 3))
     average=$((total / 3))
     if [ $remainder -ge 2 ]; then
@@ -156,13 +156,13 @@ else
     fi
 fi
 
-# Mostra riepilogo in modalità verbose
+# Show summary in verbose mode
 if [ "$verbose" = true ]; then
-    echo "=== RIEPILOGO ===" >&2
-    echo "Token count delle 3 esecuzioni: ${results[1]}, ${results[2]}, ${results[3]}" >&2
-    echo "Media calcolata: $average" >&2
+    echo "=== SUMMARY ===" >&2
+    echo "Token count for 3 runs: ${results[1]}, ${results[2]}, ${results[3]}" >&2
+    echo "Calculated mean: $average" >&2
     echo "" >&2
 fi
 
-# Output del risultato (solo il numero)
+# Output only the final number
 echo "$average"
